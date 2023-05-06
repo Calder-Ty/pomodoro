@@ -1,0 +1,8 @@
+[workspace]
+members = ["pomo", "pomod", "pomolib"]
+
+[workspace.package]
+edition = "2021"
+authors = ["Tyler Calder <calder-ty@protonmail.com>"]
+readme = "README.md"
+homepage = "https://calder-ty.com"
