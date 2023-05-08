@@ -27,7 +27,7 @@ fn main() -> Result<()> {
                 let mut input_buf = vec![];
                 s.read_to_end(&mut input_buf)?;
                 dbg!(&input_buf);
-                handle_request(&input_buf[0..5]);
+                handle_request(&input_buf[0..5], &mut app);
             }
             Err(_) => {
                 eprintln!("Socket Connection Failed")
@@ -42,17 +42,36 @@ fn main() -> Result<()> {
 /// Pomod Protocol: 1 byte -> Command, 4 bytes-> Optional data to use. If command doesn't
 /// Take additional data, then push only 0x0
 /// And then route it to handler
-fn handle_request(request: &[u8]) {
+fn handle_request(request: &[u8], app: &mut Option<Session>) {
     let final_bytes = request[1..=4].try_into().expect("Oopsie");
 
     match request[0] {
-        1_u8 => println!(
+        1_u8 => {
+            println!(
             "Recieved Start Request for {} Seconds",
             u32::from_be_bytes(final_bytes)
-        ),
+        );
+            start_handler(u32::from_be_bytes(final_bytes), app)
+        },
         2_u8 => todo!("Handle Stop"),
         3_u8 => todo!("Handle Status"),
         _ => eprintln!("Will Not handle Faulty request"),
+    }
+}
+
+fn start_handler(seconds: u32, app: &mut Option<Session>) {
+    match app {
+        Some(sess) => {
+            match sess.status {
+                SessionStatus::Working => eprintln!("You are already Working!"),
+                SessionStatus::Resting => eprintln!("Aren't you a a Giddy one?"),
+            }
+        }
+        None => {
+            let chunk = TimeChunk::new(seconds);
+            // Create A New App
+            *app = Some(Session::new(SessionStatus::Working, chunk));
+        }
     }
 }
 
@@ -69,6 +88,15 @@ enum Commands {
 struct Session {
     status: SessionStatus,
     current_chunk: TimeChunk,
+}
+
+impl Session {
+    fn new(status: SessionStatus, current_chunk: TimeChunk) -> Self {
+        Self {
+            status,
+            current_chunk,
+        }
+    }
 }
 
 impl Default for Session {
@@ -91,13 +119,13 @@ enum SessionStatus {
 #[derive(Debug, Clone, Copy)]
 struct TimeChunk {
     /// The number of Seconds in the Time frame
-    span_seconds: usize,
+    span_seconds: u32,
     /// The time the chunk Started
     start_time: Instant,
 }
 
 impl TimeChunk {
-    fn new(span_seconds: usize) -> Self {
+    fn new(span_seconds: u32) -> Self {
         Self {
             span_seconds,
             start_time: Instant::now(),
