@@ -7,3 +7,4 @@ edition.author = true
 
 [dependencies]
 ctrlc = "3.2.5"
+pomolib = { path="../pomolib/" }

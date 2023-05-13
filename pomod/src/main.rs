@@ -1,8 +1,10 @@
 use std::fs::remove_file;
-use std::io::{Read, Result};
+use std::io::{Read, Result, Write};
 use std::os::unix::net::UnixListener;
 use std::process::exit;
 use std::time::Instant;
+
+use pomolib::{ResponseCodes, SessionState, SessionStatusMessage, Transmittable};
 
 const POMO_SOCKET: &str = "/var/run/pomod.sock";
 
@@ -27,8 +29,9 @@ fn main() -> Result<()> {
                 let mut input_buf = vec![];
                 s.read_to_end(&mut input_buf)?;
                 dbg!(&input_buf);
-                handle_request(&input_buf[0..5], &mut app);
-            }
+                let message = handle_request(&input_buf[0..5], &mut app);
+                s.write(&message.to_bytes())?;
+            },
             Err(_) => {
                 eprintln!("Socket Connection Failed")
             }
@@ -42,35 +45,60 @@ fn main() -> Result<()> {
 /// Pomod Protocol: 1 byte -> Command, 4 bytes-> Optional data to use. If command doesn't
 /// Take additional data, then push only 0x0
 /// And then route it to handler
-fn handle_request(request: &[u8], app: &mut Option<Session>) {
+fn handle_request(request: &[u8], app: &mut Option<Session>) -> Box<dyn Transmittable> {
     let final_bytes = request[1..=4].try_into().expect("Oopsie");
 
     match request[0] {
         1_u8 => {
             println!(
-            "Recieved Start Request for {} Seconds",
-            u32::from_be_bytes(final_bytes)
-        );
+                "Recieved Start Request for {} Seconds",
+                u32::from_be_bytes(final_bytes)
+            );
             start_handler(u32::from_be_bytes(final_bytes), app)
-        },
+        }
         2_u8 => todo!("Handle Stop"),
-        3_u8 => todo!("Handle Status"),
-        _ => eprintln!("Will Not handle Faulty request"),
+        3_u8 => status_handler(app),
+        _ => {
+            eprintln!("Will Not handle Faulty request");
+            Box::new(ResponseCodes::InvalidRequest)
+        }
     }
 }
 
-fn start_handler(seconds: u32, app: &mut Option<Session>) {
+fn start_handler(seconds: u32, app: &mut Option<Session>) -> Box<dyn Transmittable> {
+    match app {
+        Some(sess) => match sess.status() {
+            SessionState::Working => {
+                eprintln!("You are already Working!");
+                Box::new(ResponseCodes::Success)
+            }
+            SessionState::Resting => {
+                eprintln!("Aren't you a Giddy one?");
+                Box::new(ResponseCodes::Success)
+            }
+        },
+        None => {
+            // Create A New App
+            *app = Some(Session::new(seconds, 600, SessionState::Working));
+            Box::new(ResponseCodes::Success)
+        }
+    }
+}
+
+fn status_handler(app: &mut Option<Session>) -> Box<dyn Transmittable> {
     match app {
         Some(sess) => {
-            match sess.status {
-                SessionStatus::Working => eprintln!("You are already Working!"),
-                SessionStatus::Resting => eprintln!("Aren't you a a Giddy one?"),
-            }
+            println!("{} Seconds left", sess.seconds_left());
+            Box::new(SessionStatusMessage::new(
+                sess.work_seconds,
+                sess.rest_seconds,
+                sess.seconds_left(),
+                sess.status(),
+            ))
         }
         None => {
-            let chunk = TimeChunk::new(seconds);
-            // Create A New App
-            *app = Some(Session::new(SessionStatus::Working, chunk));
+            eprintln!("No Session Started");
+            Box::new(ResponseCodes::NoSessionExists)
         }
     }
 }
@@ -86,24 +114,59 @@ enum Commands {
 
 #[derive(Debug, Clone, Copy)]
 struct Session {
-    status: SessionStatus,
-    current_chunk: TimeChunk,
+    work_seconds: u32,
+    rest_seconds: u32,
+    status: SessionState,
+    session_start: Instant,
 }
 
 impl Session {
-    fn new(status: SessionStatus, current_chunk: TimeChunk) -> Self {
+    fn new(work_seconds: u32, rest_seconds: u32, status: SessionState) -> Self {
         Self {
+            work_seconds,
+            rest_seconds,
             status,
-            current_chunk,
+            session_start: Instant::now(),
         }
+    }
+
+    fn seconds_left(&mut self) -> u32 {
+        let total_secs = Instant::now().duration_since(self.session_start).as_secs() as u32;
+        if total_secs < (self.work_seconds + self.rest_seconds) {
+            if total_secs < self.work_seconds {
+                return self.work_seconds - total_secs;
+            }
+            return (self.work_seconds + self.rest_seconds) - total_secs;
+        } else {
+            let remainder = total_secs % (self.work_seconds + self.rest_seconds);
+            if remainder == 0 {
+                // We just started over
+                self.status = SessionState::Working;
+                self.work_seconds
+            } else if (1..self.work_seconds).contains(&remainder) {
+                // In the middle of a work Session
+                self.status = SessionState::Working;
+                self.work_seconds - remainder
+            } else {
+                // Resting
+                self.status = SessionState::Resting;
+                self.work_seconds + self.rest_seconds - remainder
+            }
+        }
+    }
+
+    fn status(&self) -> SessionState {
+        self.status
     }
 }
 
 impl Default for Session {
     fn default() -> Self {
         Self {
-            status: SessionStatus::Working,
-            current_chunk: TimeChunk::new(25 * 60),
+            work_seconds: 25 * 60,
+            rest_seconds: 5 * 60,
+            status: SessionState::Working,
+            session_start: Instant::now(),
         }
     }
 }
@@ -122,13 +185,4 @@ struct TimeChunk {
     span_seconds: u32,
     /// The time the chunk Started
     start_time: Instant,
-}
-
-impl TimeChunk {
-    fn new(span_seconds: u32) -> Self {
-        Self {
-            span_seconds,
-            start_time: Instant::now(),
-        }
-    }
 }
