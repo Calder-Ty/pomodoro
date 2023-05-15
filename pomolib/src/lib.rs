@@ -11,14 +11,16 @@ impl ResponseCodes {
             0 => ResponseCodes::Success,
             1 => ResponseCodes::InvalidRequest,
             2 => ResponseCodes::NoSessionExists,
-            _ => panic!("Invalid Response Code")
+            _ => panic!("Invalid Response Code"),
         }
     }
 }
 
 impl Transmittable for ResponseCodes {
     fn to_bytes(&self) -> Vec<u8> {
-        return vec![*self as u8];
+        let mut buff = vec![*self as u8];
+        buff.push(0x04);
+        buff
     }
 }
 
@@ -92,6 +94,27 @@ impl Transmittable for SessionStatusMessage {
 pub enum SessionState {
     Working,
     Resting,
+}
+
+#[derive(Debug, Clone)]
+pub struct Request {
+    command: u8,
+    worktime: u32,
+}
+
+impl Request {
+    pub fn new(command: u8, worktime: u32) -> Self { Self { command, worktime } }
+}
+
+impl Transmittable for Request {
+
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut buff = vec![];
+
+        buff.extend_from_slice(&self.command.to_be_bytes());
+        buff.extend_from_slice(&self.worktime.to_be_bytes());
+        buff
+    }
 }
 
 #[cfg(test)]

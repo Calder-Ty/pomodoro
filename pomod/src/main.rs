@@ -1,5 +1,5 @@
 use std::fs::remove_file;
-use std::io::{Read, Result, Write};
+use std::io::{ErrorKind, Read, Result, Write};
 use std::os::unix::net::UnixListener;
 use std::process::exit;
 use std::time::Instant;
@@ -23,15 +23,22 @@ fn main() -> Result<()> {
     let mut app: Option<Session> = None;
 
     for stream in socket.incoming() {
-        match stream {
+        match stream.as_ref() {
             Ok(mut s) => {
                 // Handle The Input and Route it to actions
                 let mut input_buf = vec![];
-                s.read_to_end(&mut input_buf)?;
+                s.take(5).read_to_end(&mut input_buf)?;
                 dbg!(&input_buf);
                 let message = handle_request(&input_buf[0..5], &mut app);
-                s.write(&message.to_bytes())?;
-            },
+                match s.write(&message.to_bytes()) {
+                    Ok(_) => Ok(()),
+                    Err(e) if e.kind() == ErrorKind::BrokenPipe => {
+                        eprintln!("Sender Hang up!");
+                        Ok(())
+                    }
+                    Err(e) => Err(e),
+                }?
+            }
             Err(_) => {
                 eprintln!("Socket Connection Failed")
             }
@@ -56,7 +63,7 @@ fn handle_request(request: &[u8], app: &mut Option<Session>) -> Box<dyn Transmit
             );
             start_handler(u32::from_be_bytes(final_bytes), app)
         }
-        2_u8 => todo!("Handle Stop"),
+        2_u8 => stop_handler(app),
         3_u8 => status_handler(app),
         _ => {
             eprintln!("Will Not handle Faulty request");
@@ -100,6 +107,16 @@ fn status_handler(app: &mut Option<Session>) -> Box<dyn Transmittable> {
             eprintln!("No Session Started");
             Box::new(ResponseCodes::NoSessionExists)
         }
+    }
+}
+
+fn stop_handler(app: &mut Option<Session>) -> Box<dyn Transmittable> {
+    match app {
+        Some(sess) => {
+            *app = None;
+            Box::new(ResponseCodes::Success)
+        }
+        None => Box::new(ResponseCodes::NoSessionExists),
     }
 }
 
