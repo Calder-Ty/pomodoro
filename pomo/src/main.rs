@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use pomolib::{Request, Transmittable};
+use pomolib::{Request, Transmittable, ResponseCodes};
 use std::io::{Read, Result, Write};
 use std::os::unix::net::UnixStream;
 
@@ -33,6 +33,13 @@ fn main() -> Result<()> {
             let mut buff = vec![];
             // TODO: Handle Response
             stream.read_to_end(&mut buff)?;
+            let resp = ResponseCodes::from_bytes(&mut buff);
+            match resp {
+                ResponseCodes::Success => {}
+                ResponseCodes::InvalidRequest => {eprintln!("Invalid Request!") }
+                ResponseCodes::NoSessionExists => unreachable!()
+            }
+
         }
 
         Commands::Stop => {
