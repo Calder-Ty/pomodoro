@@ -1,3 +1,6 @@
+use std::fmt::Display;
+pub const POMO_SOCKET: &str = "/home/tyler/.local/var/pomod.socket";
+
 #[derive(Debug, Clone, Copy)]
 pub enum ResponseCodes {
     Success = 0,
@@ -18,18 +21,17 @@ impl ResponseCodes {
 
 impl Transmittable for ResponseCodes {
     fn to_bytes(&self) -> Vec<u8> {
-        let mut buff = vec![*self as u8];
-        buff.push(0x04);
+        let buff = vec![0x01, *self as u8, 0x04];
         buff
     }
 }
 
 #[derive(Debug)]
 pub struct SessionStatusMessage {
-    work_seconds: u32,
-    rest_seconds: u32,
-    time_remaining: u32,
-    state: SessionState,
+    pub work_seconds: u32,
+    pub rest_seconds: u32,
+    pub time_remaining: u32,
+    pub state: SessionState,
 }
 
 pub trait Transmittable {
@@ -80,7 +82,8 @@ impl SessionStatusMessage {
 impl Transmittable for SessionStatusMessage {
     /// Convert the status into Bytes for tx
     fn to_bytes(&self) -> Vec<u8> {
-        let mut buff: Vec<u8> = Vec::with_capacity(17);
+        let mut buff: Vec<u8> = Vec::with_capacity(14);
+        buff.push(0x0D);
         buff.extend_from_slice(&self.work_seconds.to_be_bytes());
         buff.extend_from_slice(&self.rest_seconds.to_be_bytes());
         buff.extend_from_slice(&self.time_remaining.to_be_bytes());
@@ -94,6 +97,16 @@ impl Transmittable for SessionStatusMessage {
 pub enum SessionState {
     Working,
     Resting,
+}
+
+impl Display for SessionState {
+
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            SessionState::Working => write!(f, "Working"),
+            SessionState::Resting => write!(f, "Resting"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

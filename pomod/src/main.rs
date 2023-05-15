@@ -4,9 +4,8 @@ use std::os::unix::net::UnixListener;
 use std::process::exit;
 use std::time::Instant;
 
-use pomolib::{ResponseCodes, SessionState, SessionStatusMessage, Transmittable};
+use pomolib::{ResponseCodes, SessionState, SessionStatusMessage, Transmittable, POMO_SOCKET};
 
-const POMO_SOCKET: &str = "/var/run/pomod.sock";
 
 fn main() -> Result<()> {
     let _ = ctrlc::set_handler(|| {
@@ -112,7 +111,7 @@ fn status_handler(app: &mut Option<Session>) -> Box<dyn Transmittable> {
 
 fn stop_handler(app: &mut Option<Session>) -> Box<dyn Transmittable> {
     match app {
-        Some(sess) => {
+        Some(_) => {
             *app = None;
             Box::new(ResponseCodes::Success)
         }
@@ -120,14 +119,6 @@ fn stop_handler(app: &mut Option<Session>) -> Box<dyn Transmittable> {
     }
 }
 
-/// What we want to do with the Pomodoro
-#[derive(Debug, Clone, Copy)]
-#[repr(i8)]
-enum Commands {
-    Start(u32) = 1,
-    Stop = 2,
-    Status = 3,
-}
 
 #[derive(Debug, Clone, Copy)]
 struct Session {
